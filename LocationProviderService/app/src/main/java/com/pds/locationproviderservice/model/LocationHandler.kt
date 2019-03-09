@@ -92,7 +92,7 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
                                 Constants.ACTION_LOCATION_PERMISSION_SUCCESS -> onPermissionGranted(
                                     context,
                                     locationRequest,
-                                    emitter
+                                    emitter , forPeriodic
                                 )
                                 Constants.ACTION_LOCATION_PERMISSION_FAILURE -> emitter.onSuccess(Constants.LocationRegistrationResults.FAILURE)
                                 Constants.ACTION_LOCATION_SETTING_SUCCESS -> {
@@ -163,7 +163,7 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
     private fun onPermissionGranted(
         context: Context,
         locationRequest: LocationRequest,
-        emitter: SingleEmitter<Constants.LocationRegistrationResults>
+        emitter: SingleEmitter<Constants.LocationRegistrationResults> , forPeriodic : Boolean
     ) {
         val lastLocation = fusedLocationProviderClient.lastLocation
         lastLocation.addOnSuccessListener { location: Location? ->
@@ -177,7 +177,11 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
         val client = LocationServices.getSettingsClient(context)
         val task = client.checkLocationSettings(builder.build())
         task.addOnSuccessListener {
+            if(forPeriodic){
+                mRegistered = true
             fusedLocationProviderClient.requestLocationUpdates(locationRequest, this@LocationHandler, null)
+                  }
+}
             emitter.onSuccess(Constants.LocationRegistrationResults.SUCCESS)
 
         }
