@@ -128,5 +128,7 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
             unRegisterLocationData()
 
         }
+
+
     }
 }

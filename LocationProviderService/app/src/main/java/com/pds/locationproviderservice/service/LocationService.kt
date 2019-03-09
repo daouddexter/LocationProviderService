@@ -18,6 +18,10 @@ class LocationService : Service() {
         RequestStubImpl(this, locationHandler)
     }
 
+    //  Multiple clients can connect to the service at once.
+    // However, the system calls your service's onBind() method to
+    // retrieve the IBinder only when the first client binds.
+    // The system then delivers the same IBinder to any additional clients that bind, without calling onBind() again.
     override fun onBind(intent: Intent): IBinder? {
 
         return requestStub
@@ -29,6 +33,10 @@ class LocationService : Service() {
         requestStub.reset()
 
 
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        return super.onUnbind(intent)
     }
 
 
