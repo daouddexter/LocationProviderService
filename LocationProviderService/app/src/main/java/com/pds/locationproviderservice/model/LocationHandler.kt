@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.os.RemoteException
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -22,6 +23,23 @@ import io.reactivex.disposables.Disposables
 import io.reactivex.subjects.BehaviorSubject
 
 class LocationHandler private constructor() : ILocationHandler, LocationCallback() {
+
+
+    @SuppressLint("MissingPermission")
+    override fun getCurrentLocation(context: Context): Single<Location> = Single.create<Location> { emitter ->
+        registerForLocationUpdate(context, 2000,false).subscribe({ result ->
+            if (result == Constants.LocationRegistrationResults.SUCCESS) {
+                fusedLocationProviderClient.lastLocation.addOnSuccessListener {
+                    emitter.onSuccess(it)
+                }
+            } else {
+
+                throw RemoteException("Unable to get location")
+            }
+        }, {
+            throw RemoteException("Unable to get location")
+        })
+    }
 
     companion object {
         private val locationHandler: LocationHandler by lazy {
@@ -45,12 +63,13 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
 
     override fun registerForLocationUpdate(
         context: Context,
-        interval: Long
+        interval: Long, forPeriodic: Boolean
     ): Single<Constants.LocationRegistrationResults> =
         Single.defer<Constants.LocationRegistrationResults> {
             Single.create<Constants.LocationRegistrationResults> { emitter ->
-                mRegistered = false
+
                 if (GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS) {
+
                     val locationRequest: LocationRequest = LocationRequest.create().apply {
                         this.interval = interval
                         fastestInterval = (interval / 2)
@@ -70,11 +89,15 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
                                 )
                                 Constants.ACTION_LOCATION_PERMISSION_FAILURE -> emitter.onSuccess(Constants.LocationRegistrationResults.FAILURE)
                                 Constants.ACTION_LOCATION_SETTING_SUCCESS -> {
-                                    fusedLocationProviderClient.requestLocationUpdates(
-                                        locationRequest,
-                                        this@LocationHandler,
-                                        null
-                                    )
+                                    if(forPeriodic){
+                                        fusedLocationProviderClient.requestLocationUpdates(
+                                            locationRequest,
+                                            this@LocationHandler,
+                                            null
+                                        )
+                                        mRegistered = true
+                                    }
+
                                     emitter.onSuccess(Constants.LocationRegistrationResults.SUCCESS)
                                 }
                                 Constants.ACTION_LOCATION_SETTING_FAILURE -> emitter.onSuccess(Constants.LocationRegistrationResults.FAILURE)
@@ -113,7 +136,11 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
 
 
     override fun unregisterFromLocationUpdate() {
-        fusedLocationProviderClient.removeLocationUpdates(this@LocationHandler)
+        if(mRegistered){
+            fusedLocationProviderClient.removeLocationUpdates(this@LocationHandler)
+            mRegistered = false
+        }
+
     }
 
 
