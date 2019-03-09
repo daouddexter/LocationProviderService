@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
-import android.os.RemoteException
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -27,22 +26,23 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
 
     @SuppressLint("MissingPermission")
     override fun getCurrentLocation(context: Context): Single<Location?> = Single.create<Location?> { emitter ->
-        if(mRegistered){
+        if (mRegistered) {
             fusedLocationProviderClient.lastLocation.addOnSuccessListener {
                 emitter.onSuccess(it)
             }
-        }else{
-            registerForLocationUpdate(context, 2000,false).subscribe({ result ->
+        } else {
+
+            registerForLocationUpdate(context, 2000, false).subscribe({ result ->
                 if (result == Constants.LocationRegistrationResults.SUCCESS) {
                     fusedLocationProviderClient.lastLocation.addOnSuccessListener {
                         emitter.onSuccess(it)
                     }
                 } else {
 
-                    throw RemoteException("Unable to get location")
+                    emitter.onError(Exception("Unable to get location"))
                 }
             }, {
-                throw RemoteException("Unable to get location")
+                emitter.onError(it)
             })
         }
 
@@ -96,7 +96,7 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
                                 )
                                 Constants.ACTION_LOCATION_PERMISSION_FAILURE -> emitter.onSuccess(Constants.LocationRegistrationResults.FAILURE)
                                 Constants.ACTION_LOCATION_SETTING_SUCCESS -> {
-                                    if(forPeriodic){
+                                    if (forPeriodic) {
                                         fusedLocationProviderClient.requestLocationUpdates(
                                             locationRequest,
                                             this@LocationHandler,
@@ -117,7 +117,7 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
                     }
                     emitter.setDisposable(Disposables.fromRunnable {
 
-                            LocalBroadcastManager.getInstance(context).unregisterReceiver(receiver)
+                        LocalBroadcastManager.getInstance(context).unregisterReceiver(receiver)
                     })
                     LocalBroadcastManager.getInstance(context)
                         .registerReceiver(receiver, Constants.registrationBroadcastFilter)
@@ -143,7 +143,7 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
 
 
     override fun unregisterFromLocationUpdate() {
-        if(mRegistered){
+        if (mRegistered) {
             fusedLocationProviderClient.removeLocationUpdates(this@LocationHandler)
             mRegistered = false
         }
