@@ -15,6 +15,6 @@ interface ILocationHandler {
 
     fun unregisterFromLocationUpdate()
     fun getLocationSubject(): BehaviorSubject<Location>
-    fun getCurrentLocation(context: Context): Single<Location>
+    fun getCurrentLocation(context: Context): Single<Location?>
 
 }

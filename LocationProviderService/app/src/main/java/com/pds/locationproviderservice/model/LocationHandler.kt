@@ -26,19 +26,26 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
 
 
     @SuppressLint("MissingPermission")
-    override fun getCurrentLocation(context: Context): Single<Location> = Single.create<Location> { emitter ->
-        registerForLocationUpdate(context, 2000,false).subscribe({ result ->
-            if (result == Constants.LocationRegistrationResults.SUCCESS) {
-                fusedLocationProviderClient.lastLocation.addOnSuccessListener {
-                    emitter.onSuccess(it)
-                }
-            } else {
-
-                throw RemoteException("Unable to get location")
+    override fun getCurrentLocation(context: Context): Single<Location?> = Single.create<Location?> { emitter ->
+        if(mRegistered){
+            fusedLocationProviderClient.lastLocation.addOnSuccessListener {
+                emitter.onSuccess(it)
             }
-        }, {
-            throw RemoteException("Unable to get location")
-        })
+        }else{
+            registerForLocationUpdate(context, 2000,false).subscribe({ result ->
+                if (result == Constants.LocationRegistrationResults.SUCCESS) {
+                    fusedLocationProviderClient.lastLocation.addOnSuccessListener {
+                        emitter.onSuccess(it)
+                    }
+                } else {
+
+                    throw RemoteException("Unable to get location")
+                }
+            }, {
+                throw RemoteException("Unable to get location")
+            })
+        }
+
     }
 
     companion object {
@@ -109,12 +116,12 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
 
                     }
                     emitter.setDisposable(Disposables.fromRunnable {
-                        if (mRegistered)
+
                             LocalBroadcastManager.getInstance(context).unregisterReceiver(receiver)
                     })
                     LocalBroadcastManager.getInstance(context)
                         .registerReceiver(receiver, Constants.registrationBroadcastFilter)
-                    mRegistered = true
+
                     fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
                     if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED
