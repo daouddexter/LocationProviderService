@@ -126,7 +126,7 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
                     if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED
                     ) {
-                        onPermissionGranted(context, locationRequest, emitter)
+                        onPermissionGranted(context, locationRequest, emitter,forPeriodic)
                     } else {
                         context.startActivity(Intent(context, PermissionActivity::class.java))
                     }
@@ -181,7 +181,7 @@ class LocationHandler private constructor() : ILocationHandler, LocationCallback
                 mRegistered = true
             fusedLocationProviderClient.requestLocationUpdates(locationRequest, this@LocationHandler, null)
                   }
-}
+
             emitter.onSuccess(Constants.LocationRegistrationResults.SUCCESS)
 
         }
