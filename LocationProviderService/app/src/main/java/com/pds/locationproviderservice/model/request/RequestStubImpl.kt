@@ -8,6 +8,7 @@ import com.pds.locationproviderservice.ILocationRequestInterface
 import com.pds.locationproviderservice.constants.Constants
 import com.pds.locationproviderservice.infrastructure.ILocationHandler
 import io.reactivex.BackpressureStrategy
+import io.reactivex.Completable
 import io.reactivex.Flowable
 import io.reactivex.Single
 import io.reactivex.android.schedulers.AndroidSchedulers
@@ -16,7 +17,8 @@ import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
 import java.util.concurrent.TimeUnit
 
-class RequestStubImpl(private val context: Context, private val locationHandler: ILocationHandler) : ILocationRequestInterface.Stub() {
+class RequestStubImpl(private val context: Context, private val locationHandler: ILocationHandler) :
+    ILocationRequestInterface.Stub() {
     private val disposableMap: MutableMap<ILocationCallbackInterface?, Disposable> = HashMap()
     private val disposable: CompositeDisposable = CompositeDisposable()
     private var mRegistered = false
@@ -27,24 +29,30 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
             throw RemoteException("Interval should be greater than or equal to 2000ms")
 
         }
-        if (!disposableMap.containsKey(callback)) {
+        if (!disposableMap.containsKey(callback) ) {
 
-            callback?.run {
-                if(mRegistered)
-                    periodicObserver(interval, this)
-                else{
-                    registerLocationData().subscribe({
-                        if(it){
+            synchronized(RequestStubImpl::class) {
+                Completable.create {
+                    callback?.run {
+                        if (mRegistered)
                             periodicObserver(interval, this)
-                        }else  throw RemoteException("Unable to register to location service")
-                    },{
-                        throw RemoteException(it.message)
-                    })
+                        else {
+                            registerLocationData().subscribe({
+                                if (it) {
+                                    periodicObserver(interval, this)
+                                } else throw RemoteException("Unable to register to location service")
+                            }, {
+                                throw RemoteException(it.message)
+                            })
+                        }
+
+                    }
+
+
                 }
-
-            }
-
-
+            }.subscribeOn(AndroidSchedulers.mainThread())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe()
         }
 
 
@@ -81,16 +89,18 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
 
     private fun registerLocationData(): Single<Boolean> =
         Single.defer<Boolean> {
-            Single.create<Boolean> {
+            Single.create<Boolean> { emitter ->
                 synchronized(RequestStubImpl::class) {
                     disposable.add(
                         locationHandler.registerForLocationUpdate(context, 2000, true)
                             .subscribeOn(AndroidSchedulers.mainThread()).observeOn(AndroidSchedulers.mainThread()).subscribe(
                                 {
                                     mRegistered = it == Constants.LocationRegistrationResults.SUCCESS
+                                    emitter.onSuccess(if(mRegistered) true else false)
                                 },
                                 {
                                     mRegistered = false
+                                    emitter.onSuccess(false)
                                 })
                     )
 
@@ -99,8 +109,9 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
         }
 
     private fun periodicObserver(interval: Int, callback: ILocationCallbackInterface) {
-        disposableMap[callback] = locationHandler.getLocationSubject().subscribeOn(Schedulers.io()).observeOn(Schedulers.io())
-            .toFlowable(BackpressureStrategy.LATEST).concatMap { location ->
+        disposableMap[callback] =
+            locationHandler.getLocationSubject().subscribeOn(Schedulers.io()).observeOn(Schedulers.io())
+                .toFlowable(BackpressureStrategy.LATEST).concatMap { location ->
                 return@concatMap Flowable.just<Location>(location).delay(interval.toLong(), TimeUnit.MILLISECONDS)
             }.subscribe({
                 callback.onPeriodicLocation(it)
@@ -113,7 +124,7 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
         synchronized(RequestStubImpl::class) {
             disposable.clear()
             locationHandler.unregisterFromLocationUpdate()
-            mRegistered=false
+            mRegistered = false
         }
 
     }

@@ -27,11 +27,7 @@ class PermissionActivity : AppCompatActivity() {
 
 
 
-        if (intent?.action == Intent.ACTION_MAIN) {
-            startService(Intent(this, LocationService::class.java))
-          //  finish()
-            return
-        }
+
         val isForLocationSetting: Boolean =
             intent?.getBooleanExtra(Constants.LOCATION_EXCEPTION_RESOLUTION, false) ?: false
         if (isForLocationSetting) {
@@ -94,5 +90,6 @@ class PermissionActivity : AppCompatActivity() {
                 action = result
             })
         }
+        finish()
     }
 }
