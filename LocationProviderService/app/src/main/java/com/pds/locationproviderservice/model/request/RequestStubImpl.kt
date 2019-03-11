@@ -1,12 +1,17 @@
 package com.pds.locationproviderservice.model.request
 
+import android.app.ActivityManager
 import android.content.Context
+import android.content.Context.ACTIVITY_SERVICE
 import android.location.Location
+import android.os.Binder
 import android.os.RemoteException
+import android.util.Log
 import com.pds.locationproviderservice.ILocationCallbackInterface
 import com.pds.locationproviderservice.ILocationRequestInterface
 import com.pds.locationproviderservice.constants.Constants
 import com.pds.locationproviderservice.infrastructure.ILocationHandler
+import com.pds.locationproviderservice.model.clientdata.ClientData
 import io.reactivex.BackpressureStrategy
 import io.reactivex.Completable
 import io.reactivex.Flowable
@@ -17,9 +22,10 @@ import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
 import java.util.concurrent.TimeUnit
 
+
 class RequestStubImpl(private val context: Context, private val locationHandler: ILocationHandler) :
     ILocationRequestInterface.Stub() {
-    private val disposableMap: MutableMap<ILocationCallbackInterface?, Disposable> = HashMap()
+    private val clientDataList: MutableList<ClientData> = ArrayList()
     private val disposable: CompositeDisposable = CompositeDisposable()
     private var mRegistered = false
 
@@ -29,30 +35,35 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
             throw RemoteException("Interval should be greater than or equal to 2000ms")
 
         }
-        if (!disposableMap.containsKey(callback) ) {
+        val pkgName = packageName()
+        pkgName?.let { packageName ->
+            if (!clientDataList.stream().anyMatch { clientData ->
+                    clientData?.packageName == packageName
+                }) {
 
-            synchronized(RequestStubImpl::class) {
-                Completable.create {
-                    callback?.run {
-                        if (mRegistered)
-                            periodicObserver(interval, this)
-                        else {
-                            registerLocationData().subscribe({
-                                if (it) {
-                                    periodicObserver(interval, this)
-                                } else throw RemoteException("Unable to register to location service")
-                            }, {
-                                throw RemoteException(it.message)
-                            })
+                synchronized(RequestStubImpl::class) {
+                    Completable.create {
+                        callback?.run {
+                            if (mRegistered)
+                                periodicObserver(interval, this, packageName)
+                            else {
+                                registerLocationData().subscribe({
+                                    if (it) {
+                                        periodicObserver(interval, this, packageName)
+                                    } else throw RemoteException("Unable to register to location service")
+                                }, {
+                                    throw RemoteException(it.message)
+                                })
+                            }
+
                         }
 
+
                     }
-
-
-                }
-            }.subscribeOn(AndroidSchedulers.mainThread())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe()
+                }.subscribeOn(AndroidSchedulers.mainThread())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe()
+            }
         }
 
 
@@ -74,15 +85,25 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
     }
 
     override fun unRegisterPeriodicLocation(callback: ILocationCallbackInterface?) {
-        callback?.run {
 
-            if (disposableMap.contains(this))
-                disposableMap.remove(this)?.dispose()
+        packageName().run {
+            clientDataList.stream().filter { clientData ->
+                clientData?.packageName == this
+            }.forEach { clientData ->
+                clientData.disposable.dispose()
+            }
+            clientDataList.removeAll { clientData ->
+                clientData.packageName == this
+            }
 
         }
 
 
-        if (disposableMap.isEmpty())
+
+
+
+
+        if (clientDataList.isEmpty())
             unRegisterLocationData()
     }
 
@@ -96,7 +117,7 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
                             .subscribeOn(AndroidSchedulers.mainThread()).observeOn(AndroidSchedulers.mainThread()).subscribe(
                                 {
                                     mRegistered = it == Constants.LocationRegistrationResults.SUCCESS
-                                    emitter.onSuccess(if(mRegistered) true else false)
+                                    emitter.onSuccess(mRegistered)
                                 },
                                 {
                                     mRegistered = false
@@ -108,16 +129,25 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
             }
         }
 
-    private fun periodicObserver(interval: Int, callback: ILocationCallbackInterface) {
-        disposableMap[callback] =
-            locationHandler.getLocationSubject().subscribeOn(Schedulers.io()).observeOn(Schedulers.io())
+    private fun periodicObserver(
+        interval: Int,
+        callback: ILocationCallbackInterface,
+        pkgName: String
+    ) {
+
+        val clientData = ClientData(
+            disposable = locationHandler.getLocationSubject().subscribeOn(Schedulers.io()).observeOn(Schedulers.io())
                 .toFlowable(BackpressureStrategy.LATEST).concatMap { location ->
-                return@concatMap Flowable.just<Location>(location).delay(interval.toLong(), TimeUnit.MILLISECONDS)
-            }.subscribe({
-                callback.onPeriodicLocation(it)
-            }, {
-                throw RemoteException(it.message)
-            })
+                    return@concatMap Flowable.just<Location>(location).delay(interval.toLong(), TimeUnit.MILLISECONDS)
+                }.subscribe({
+                    callback.onPeriodicLocation(it)
+                }, {
+                    throw RemoteException(it.message)
+                }), callback = callback, packageName = pkgName
+        )
+        clientDataList.add(clientData)
+
+
     }
 
     private fun unRegisterLocationData() {
@@ -130,16 +160,35 @@ class RequestStubImpl(private val context: Context, private val locationHandler:
     }
 
     fun reset() {
-        if (disposableMap.isNotEmpty()) {
-            disposableMap.forEach {
-                it.value.dispose()
+        if (clientDataList.isNotEmpty()) {
+            clientDataList.forEach {
+                it.disposable.dispose()
 
             }
-            disposableMap.clear()
+            clientDataList.clear()
             unRegisterLocationData()
 
         }
 
 
+    }
+
+    private fun packageName(): String? {
+        var pkgName: String? = null
+        val pid = Binder.getCallingPid()
+
+        val am = context.getSystemService(ACTIVITY_SERVICE) as ActivityManager?
+        val processes = am!!.runningAppProcesses
+
+        for (proc in processes) {
+
+            if (proc.pid == pid) {
+
+                pkgName = proc.processName
+            }
+        }
+        // package name of calling application package
+        Log.e("Package Name", pkgName)
+        return pkgName
     }
 }
